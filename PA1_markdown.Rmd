@@ -1,0 +1,242 @@
+---
+title: "Reproducible Research Peer Graded Assignment Week 2"
+author: "Ussia"
+date: "7/26/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Summary
+
+This is a R Markdown Assignment on the analysis of the Personal Activity Data, to see if there are any patterns in behaviors. 
+
+# 1. Loading and processing the data
+
+## 1.1 Installing packages
+
+```{r, echo=FALSE, results='hide', warning=FALSE, message=FALSE}
+library(ggplot2)
+library(scales)
+library(Hmisc)
+library(lubridate)
+library(dplyr)
+```
+
+## 1.2 Loading the data 
+
+```{r, results='markup', warning=TRUE, message=TRUE}
+if(!file.exists('activity.csv')){
+    unzip('activity.zip')
+}
+Data <- read.csv('activity.csv')
+```
+
+# 2. Average number of steps taken per day.
+
+Group the data by days and calculate the total number of steps taken per day:
+```{r}
+act_date <- group_by(Data,date)
+Dailysteps <- summarize(act_date,tot_mon_steps = sum(steps))
+```
+
+# 3. Mean and median total number of steps taken per day
+
+The mean number of steps taken per day (while removing days containing no 
+information, i.e. `NA`'s) is
+```{r}
+DailystepsMean <- mean(Dailysteps$tot_mon_steps,na.rm = TRUE)
+DailystepsMean
+```
+
+The median number of steps taken per day (while removing days containing no 
+information, i.e. `NA`'s) is
+```{r}
+DailystepsMedian <- median(Dailysteps$tot_mon_steps,na.rm = TRUE)
+DailystepsMedian
+```
+# 4. Histogram of the total number of steps taken each day
+```{r}
+g1 <- ggplot(Dailysteps, aes(as.Date(date),tot_mon_steps) ) +
+      geom_bar(stat="identity") +
+      geom_hline(aes(yintercept=DailystepsMean, 
+                  color = "mean"), lwd = 1, lty = 1) +
+      geom_hline(aes(yintercept=DailystepsMedian, 
+                  color = "median"), lwd = 1, lty = 2) +
+      ggtitle("Total Steps per Day (Oct & Nov 2012)") + 
+      xlab("Date") + ylab("Total Steps") +
+      scale_x_date(date_labels="%b-%d",date_breaks="1 week") +
+      scale_color_manual("",breaks = c("mean","median"),
+                  values = c("red","blue"))
+print(g1)
+```
+
+# 5. Average daily activity pattern?
+A new data framne is created in which steps are aggregated into averages within each 5 minute interval
+
+Group by interval and average the number of steps over all days:
+```{r}
+act_interval <- group_by(Data,interval)
+int_avg_steps <- summarize(act_interval,
+                  avg_int_steps = mean(steps,na.rm = TRUE))
+```
+
+Below is a plot showing the average steps over all days for each interval.
+
+```{r}
+g2 <- ggplot(int_avg_steps,aes(x=interval,y=avg_int_steps)) +
+      geom_line() + ggtitle("Average Steps per Daily Interval (Oct & Nov 2012)") + 
+      ylab("5-min Intervals") + ylab("Steps Averaged over all Dates")
+print(g2)
+```
+
+On average, the interval with the most steps is 835 with 206.2 average steps. See 
+below:
+
+```{r}
+int_avg_steps[which.max(int_avg_steps$avg_int_steps),]
+```
+# 6. Missing values
+## 6.1 Total number of missing values
+```{r}
+sum(is.na(Data$steps))
+```
+## 6.2 Strategy for imputing the missing values (create new dataset)
+
+1. Find all entries that are missing values.
+```{r}
+## entries that are NA's
+na_entry <- is.na(act_interval$steps)
+```
+2. Find the dates that correspond to the missing entries.
+```{r}
+## Dates that are contain NA's
+na_dates <- unique(act_interval$date[na_entry])
+```
+3. Create a vector containing all the dates in the data set, in order.
+```{r}
+## All dates in study 
+the_dates <- levels(act_interval$date)
+```
+4. Create a vector of matching length to index the dates in order.
+```{r}
+## Indices of Dates in order
+date_indices <- c(1:length(the_dates))
+```
+5. Now, find the indices of the dates that contain `NA` entries.
+```{r}
+## Indices that match na_dates
+na_date_indices <- date_indices[is.element(the_dates,na_dates)]
+na_date_indices
+```
+6. Create a complete list of the intervals in a day (12 5-min intervals per hour, 
+24 hours in a day: 12 x 24 = 288 total intervals in a day).
+```{r}
+## 24 hrs of interval values
+interval_list <- unique(act_interval$interval)
+```
+7. Make a copy of the data set, and use the copy to fill in the missing values.
+```{r}
+## Make a copy of act_interval
+imputed_act_interval <- act_interval
+```
+8. Now, take the missing values and fill them in. Take a date with missing values,
+and for each interval, fill it with the average of the steps taken the day before 
+and the day after for that same interval.
+```{r}
+for(d_index in na_date_indices){
+      temp_ind <- intersect(date_indices,c(d_index-1,d_index+1))
+      imputed_act_interval[
+            imputed_act_interval$date == the_dates[d_index],]$steps =
+            summarize(imputed_act_interval[
+            is.element(imputed_act_interval$date,the_dates[temp_ind]),],
+            steps = mean(steps,na.rm = TRUE))$steps
+}
+```      
+
+Group by date and find the total number of steps taken each day:
+```{r}
+imputed_days_sum_steps <- summarize(group_by(imputed_act_interval,date),
+                            tot_mon_steps = sum(steps))
+```
+
+The mean daily steps taken with imputed data is now
+```{r}
+imputed_step_mean <- mean(imputed_days_sum_steps$tot_mon_steps)
+imputed_step_mean
+```
+# 7. Mean and median total number of steps, after missing values Imputed. 
+
+```{r}
+imputed_step_median <- median(imputed_days_sum_steps$tot_mon_steps)
+imputed_step_median
+```
+# 8. Histogram of the total number of steps taken each day, after missing values Imputed
+
+```{r}
+g3 <- ggplot(imputed_days_sum_steps, aes(as.Date(date),tot_mon_steps) ) +
+      geom_bar(stat="identity") +
+      geom_hline(aes(yintercept=mean(imputed_days_sum_steps$tot_mon_steps,na.rm = TRUE), 
+                  color = "mean"), lwd = 1, lty = 1) +
+      geom_hline(aes(yintercept=median(imputed_days_sum_steps$tot_mon_steps,na.rm = TRUE), 
+                  color = "median"), lwd = 1, lty = 2) +
+      ggtitle("Total Steps per Day with Imputed Data (Oct & Nov 2012)") + 
+      xlab("Date") + ylab("Total Steps") +
+      scale_x_date(date_labels="%b-%d",date_breaks="1 week") +
+      scale_color_manual("",breaks = c("mean","median"),
+                  values = c("red","blue"))
+print(g3)
+```
+
+
+# 9. Comparing differences in activity patterns between weekdays and weekends?
+## 9.1 Create a new factor variable in the dataset with two levels (weekday and weekend) 
+
+Using the `wday()` function, dates are characterized by numbers 1 to 7.
+```{r}
+wdays <- c(2,3,4,5,6)
+wends <- c(1,7)
+```
+
+Which elements of the data set are weekdays.
+```{r}
+is_wday <- is.element(wday(as.Date(imputed_act_interval$date)),wdays)
+```
+
+Add a column to our imputed data set with the entry of `Weekday` for every entry. 
+Then, finding the weekend days, change their label to `Weekend`. Make this column 
+a `factor` variable, giving us a column with two factors. 
+```{r}
+imputed_act_interval <- mutate(imputed_act_interval,day_of_week="Weekday")
+imputed_act_interval$day_of_week[!is_wday] = "Weekend"
+imputed_act_interval$day_of_week = as.factor(imputed_act_interval$day_of_week)
+```
+
+Now that we've got a variable labeling the date as either a weekday or a weekend,
+we can investigate the steps per interval averaging over all weekdays or weekend days. 
+
+Group by the day of the week (`Weekday` or `Weekend`) and interval, and compute 
+the average number of steps for that subset.
+```{r}
+imputed_act_interval <- group_by(imputed_act_interval,day_of_week,interval)
+imputed_int_avg_steps <- summarize(imputed_act_interval,avg_int_steps = mean(steps))
+```
+
+## 10 Panel plot containing a time series plot
+
+```{r}
+g4 <- ggplot(imputed_int_avg_steps, 
+             aes(x=interval, y=avg_int_steps)
+             ) +
+      geom_line() +
+      facet_grid(day_of_week~.) +
+      ggtitle("Average Steps per Daily Interval with Imputed Data (Oct & Nov 2012)") + 
+      xlab("5-min Interval") + ylab("Steps Averaged over all Dates") 
+#      scale_color_manual("",breaks = c("Weekday","Weekend"),
+#                  values = c("red","blue"))
+print(g4)
+```
+
+The analysis shows the weekend has an average greater steps taken than during the week (people are more active during weekend, due to not being at work). During the week, people take more steps during the morning, where it tapers off during the day (people perhaps exercising during the morning before going to work). 
